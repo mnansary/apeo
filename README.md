@@ -1,2 +1,2 @@
-# apsis-printed-english-ocr
-apsis printed ocr (English Memo Only)
+# apeo
+apeo modeling repo
