@@ -5,6 +5,7 @@ from __future__ import print_function
 #-------------------------
 from .utils import localize_box,LOG_INFO
 from .detector import Detector
+from .skus import sku_names
 from paddleocr import PaddleOCR
 import cv2
 import copy
@@ -82,20 +83,36 @@ class PrintedOCR(object):
         df["y1"]=df.box.progress_apply(lambda x:int(x[0][1]))
         df=df[["line_no","word_no","text","x1","y1"]]
 
-        data=[]
+        lines=[]
         for line in tqdm(df.line_no.unique()):
-            _line=[]
+            #_line=[]
             ldf=df.loc[df.line_no==line]
             ldf.reset_index(drop=True,inplace=True)
             ldf=ldf.sort_values('word_no')
+            _ltext=''
             for idx in range(len(ldf)):
                 text=ldf.iloc[idx,2]
-                x1=ldf.iloc[idx,3]
-                y1=ldf.iloc[idx,4]
-                _line.append({"text":text,"x1":x1,"y1":y1})
-            data.append(_line)
-        data={"data":data}
-        return data
+                _ltext+=text
+            if "-" in _ltext:
+                for sku in sku_names:
+                    if sku in _ltext:
+                        lines.append(_ltext) 
+            if "TOTAL" in _ltext:
+                break
+
+        prods=[]
+        qtys=[]
+        prices=[]
+
+        for line in lines:
+            line=line.split("-")
+            line=[l for l in line if l.strip()]
+            if len(line)==3:
+                prods.append(line[0])
+                qtys.append(line[1])
+                prices.append(line[2])
+                
+        return pd.DataFrame({"sku":prods,"quantity":qtys,"price":prices})
 
         
         
