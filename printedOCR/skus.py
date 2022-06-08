@@ -43,3 +43,4 @@ sku_names=['B&H SW 20HL',
             'LS OG 20HL',
             'FLG 20HL',
             'FLG 10HL']
+sku_merged=[s.replace(" ",'') for s in sku_names]

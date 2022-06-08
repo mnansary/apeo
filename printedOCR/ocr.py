@@ -5,7 +5,8 @@ from __future__ import print_function
 #-------------------------
 from .utils import localize_box,LOG_INFO
 from .detector import Detector
-from .skus import sku_names
+from .skus import sku_names,sku_merged
+from .masking import create_mask
 from paddleocr import PaddleOCR
 import cv2
 import copy
@@ -22,32 +23,34 @@ class PrintedOCR(object):
         self.det=Detector()
         LOG_INFO("Loaded Model")
 
-    def process_boxes(self,line_boxes,crops):
+    def process_boxes(self,img,line_boxes,crops):
         # line_boxes
         line_orgs=[]
-        line_refs=[]
         for bno in range(len(line_boxes)):
             tmp_box = copy.deepcopy(line_boxes[bno])
             x2,x1=int(max(tmp_box[:,0])),int(min(tmp_box[:,0]))
             y2,y1=int(max(tmp_box[:,1])),int(min(tmp_box[:,1]))
             line_orgs.append([x1,y1,x2,y2])
-            line_refs.append([x1,y1,x2,y2]) 
         
-        # merge
-        for lidx,box in enumerate(line_refs):
-            if box is not None:
-                for nidx in range(lidx+1,len(line_refs)):
-                    x1,y1,x2,y2=box    
-                    x1n,y1n,x2n,y2n=line_orgs[nidx]
-                    dist=min([abs(y2-y1),abs(y2n-y1n)])
-                    if abs(y1-y1n)<dist and abs(y2-y2n)<dist:
-                        x1,x2,y1,y2=min([x1,x1n]),max([x2,x2n]),min([y1,y1n]),max([y2,y2n])
-                        box=[x1,y1,x2,y2]
-                        line_refs[lidx]=None
-                        line_refs[nidx]=box
-                        
-        line_refs=[lr for lr in line_refs if lr is not None]
-               
+        # references
+        line_refs=[]
+        mask=create_mask(img,line_boxes)
+        # Create rectangular structuring element and dilate
+        mask=mask*255
+        mask=mask.astype("uint8")
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (100,1))
+        dilate = cv2.dilate(mask, kernel, iterations=4)
+
+        # Find contours and draw rectangle
+        cnts = cv2.findContours(dilate, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cnts = cnts[0] if len(cnts) == 2 else cnts[1]
+        for c in cnts:
+            x,y,w,h = cv2.boundingRect(c)
+            line_refs.append([x,y,x+w,y+h])
+        line_refs = sorted(line_refs, key=lambda x: (x[1], x[0]))
+
+
+        # organize       
         data=pd.DataFrame({"words":line_orgs,"word_ids":[i for i in range(len(line_orgs))]})
         # detect line-word
         data["lines"]=data.words.apply(lambda x:localize_box(x,line_refs))
@@ -73,7 +76,7 @@ class PrintedOCR(object):
         img=cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
         # text detection
         line_boxes,crops=self.det.detect(img,self.line_en)
-        df,sorted_crops=self.process_boxes(line_boxes,crops)
+        df,sorted_crops=self.process_boxes(img,line_boxes,crops)
         # recog
         res_eng = self.line_en.ocr(sorted_crops,det=False,cls=True)
         en_text=[i for i,_ in res_eng]
@@ -89,11 +92,12 @@ class PrintedOCR(object):
             _ltext=''
             for idx in range(len(ldf)):
                 text=ldf.iloc[idx,2]
-                _ltext+=text
-            if "-" in _ltext:
-                for sku in sku_names:
-                    if sku in _ltext:
-                        lines.append(_ltext) 
+                _ltext+='--'+text
+            _ltext=_ltext.replace(" ",'')
+            for ids,sku in enumerate(sku_merged):
+                if sku in _ltext:
+                    _ltext=_ltext.replace(sku,sku_names[ids])
+                    lines.append(_ltext) 
             if "TOTAL" in _ltext:
                 break
 
@@ -109,7 +113,7 @@ class PrintedOCR(object):
                 qtys.append(line[1])
                 prices.append(line[2])
                 
-        return pd.DataFrame({"sku":prods,"quantity":qtys,"price":prices})
+        return df,pd.DataFrame({"sku":prods,"quantity":qtys,"price":prices})
 
         
         
