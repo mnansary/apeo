@@ -78,10 +78,7 @@ class PrintedOCR(object):
         res_eng = self.line_en.ocr(sorted_crops,det=False,cls=True)
         en_text=[i for i,_ in res_eng]
         df["text"]=en_text
-        # formatting
-        df['x1']=df.box.progress_apply(lambda x:int(x[0][0]))
-        df["y1"]=df.box.progress_apply(lambda x:int(x[0][1]))
-        df=df[["line_no","word_no","text","x1","y1"]]
+        df=df[["line_no","word_no","text"]]
 
         lines=[]
         for line in tqdm(df.line_no.unique()):
